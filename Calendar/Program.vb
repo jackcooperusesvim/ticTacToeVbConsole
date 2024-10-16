@@ -1,5 +1,7 @@
 Imports System
+Imports System.Net
 Imports System.Runtime.CompilerServices
+Imports System.Text.RegularExpressions
 
 Module Program
     Public Enum Piece
@@ -7,20 +9,29 @@ Module Program
         O
         Blank
     End Enum
-    Public Enum ResultEnum
+    Public Enum Status
         Success
         Failure
     End Enum
     Public Structure Result
-        Public Result As ResultEnum
-        Public Message As String
+        Public Status As Status
+        Public ErrorMessage As String
+        Public Result As Object
+        Public Function Unwrap()
+            Select Case Status
+                Case Status.Failure
+                    Throw New Exception($"Unwrap Failed: {ErrorMessage}")
+                Case Status.Success
+                    Return Result
+            End Select
+        End Function
     End Structure
     Public Structure Turn
         Public x As Integer
         Public y As Integer
         Public piece As Piece
     End Structure
-    Private Enum TurnWinner
+    Private Enum WinningPiece
         X
         O
         Lock
@@ -37,11 +48,11 @@ Module Program
         End If
     End Function
 
-    Private Function ToPiece(tw As TurnWinner)
-        If tw = TurnWinner.X Then
+    Private Function ToPiece(tw As WinningPiece)
+        If tw = WinningPiece.X Then
             Return Piece.X
         End If
-        If tw = TurnWinner.O Then
+        If tw = WinningPiece.O Then
             Return Piece.O
         End If
         Return Piece.Blank
@@ -49,25 +60,38 @@ Module Program
 
     Private Function ToTurnWinner(p As Piece)
         If p = Piece.X Then
-            Return TurnWinner.X
+            Return WinningPiece.X
         End If
         If p = Piece.O Then
-            Return TurnWinner.O
+            Return WinningPiece.O
         End If
-        Return TurnWinner.Lock
+        Return WinningPiece.Lock
     End Function
 
-    Private Function AddPiece(tw As TurnWinner, p As Piece)
-        If p = Piece.Blank Or tw = TurnWinner.Lock Then
-            Return TurnWinner.Lock
+    Private Function AddPiece(wp As WinningPiece, p As Piece)
+        If p = Piece.Blank Or wp = WinningPiece.Lock Then
+            Return WinningPiece.Lock
         End If
-        If tw = TurnWinner.Unknown Then
+        If wp = WinningPiece.Unknown Then
             Return ToTurnWinner(p)
         End If
-        If ToPiece(tw) = p Then
-
+        If ToPiece(wp) = p Then
+            Return wp
         Else
+            Return WinningPiece.Lock
         End If
+    End Function
+    Private Function ConcatWinningPieces(wps As WinningPiece())
+        Dim Winner As WinningPiece = WinningPiece.Lock
+        For Each wp In wps
+            If wp <> WinningPiece.Lock And wp <> WinningPiece.Unknown Then
+                If Winner <> wp Then
+                    Return New Result With {.Status = Status.Failure, .ErrorMessage = "Both Players Won"}
+                End If
+                Winner = wp
+            End If
+        Next
+        Return New Result With {.Status = Status.Success, .Result = Winner}
     End Function
 
     Public Class Board
@@ -87,19 +111,37 @@ Module Program
             If TurnToApply.piece = CurrentTurn Then
                 If Board(TurnToApply.x, TurnToApply.y) = blank Then
                     Board(TurnToApply.x, TurnToApply.y) = TurnToApply.piece
-                    Return New Result With {.Result = ResultEnum.Success}
+                    Return New Result With {.Result = Status.Success}
                 Else
-                    Return New Result With {.Result = ResultEnum.Failure, .Message = "The chosen spot is taken"}
+                    Return New Result With {.Result = Status.Failure, .ErrorMessage = "The chosen spot is taken"}
                 End If
             Else
-                Return New Result With {.Result = ResultEnum.Failure, .Message = $"Turn with Piece '{TurnToApply.piece}' Does Not Match Current Turn of '{CurrentTurn}'"}
+                Return New Result With {.Result = Status.Failure, .ErrorMessage = $"Turn with Piece '{TurnToApply.piece}' Does Not Match Current Turn of '{CurrentTurn}'"}
             End If
         End Function
 
         Function IsWon()
-            Dim WinningRows(2) As Piece
-            Dim WinningCols(2) As Piece
-            Dim WinningDiags(2) As Piece
+            Dim WinningRows(2) As WinningPiece
+            WinningRows = {WinningPiece.Unknown, WinningPiece.Unknown, WinningPiece.Unknown}
+
+            Dim WinningCols(2) As WinningPiece
+            WinningCols = {WinningPiece.Unknown, WinningPiece.Unknown, WinningPiece.Unknown}
+
+            Dim WinningDiags(1) As WinningPiece
+            WinningDiags = {WinningPiece.Unknown, WinningPiece.Unknown}
+
+            For row As Integer = 0 To 2
+                For col As Integer = 0 To 2
+                    WinningRows(col) = AddPiece(WinningRows(col), Board(col, row))
+                    WinningCols(row) = AddPiece(WinningRows(row), Board(col, row))
+                    If col = row Then
+                        WinningDiags(0) = AddPiece(WinningDiags(0), Board(col, row))
+                    End If
+                    If col = 2 - row Then
+                        WinningDiags(1) = AddPiece(WinningDiags(1), Board(col, row))
+                    End If
+                Next
+            Next
         End Function
         Function ValidTurns()
 
